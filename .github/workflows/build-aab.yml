@@ -1,1 +1,69 @@
+name: Build LoMo Android App Bundle
 
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    name: Build AAB
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Locate Android project
+        shell: bash
+        run: |
+          set -e
+
+          if [ -f "gradlew" ]; then
+            echo "PROJECT_DIR=." >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          if [ -f "lomo-twa-android-source.zip" ]; then
+            mkdir -p twa-src
+            unzip -q lomo-twa-android-source.zip -d twa-src
+
+            PROJECT_PATH="$(find twa-src -name gradlew -type f | head -n 1 | xargs dirname)"
+            if [ -z "$PROJECT_PATH" ]; then
+              echo "Could not find gradlew inside lomo-twa-android-source.zip"
+              exit 1
+            fi
+
+            echo "PROJECT_DIR=$PROJECT_PATH" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          echo "No Android project found. Put the extracted Android files at the repository root, or upload lomo-twa-android-source.zip to the repository root."
+          exit 1
+
+      - name: Make Gradle executable
+        shell: bash
+        run: chmod +x "$PROJECT_DIR/gradlew"
+
+      - name: Build release App Bundle
+        shell: bash
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: ./gradlew --no-daemon bundleRelease
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lomo-release-aab
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
